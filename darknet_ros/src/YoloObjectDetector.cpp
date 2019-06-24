@@ -535,6 +535,7 @@ void YoloObjectDetector::yolo()
   buff_[0] = ipl_to_image(ROS_img);
   buff_[1] = copy_image(buff_[0]);
   buff_[2] = copy_image(buff_[0]);
+  pre_header_ = headerBuff_[0];
   headerBuff_[0] = imageAndHeader.header;
   headerBuff_[1] = headerBuff_[0];
   headerBuff_[2] = headerBuff_[0];
@@ -560,30 +561,34 @@ void YoloObjectDetector::yolo()
   }
 
   demoTime_ = what_time_is_it_now();
-
   while (!demoDone_)
   {
     buffIndex_ = (buffIndex_ + 1) % 3;
     fetch_thread = std::thread(&YoloObjectDetector::fetchInThread, this);
     detect_thread = std::thread(&YoloObjectDetector::detectInThread, this);
-    if (!demoPrefix_)
-    {
-      fps_ = 1. / (what_time_is_it_now() - demoTime_);
-      demoTime_ = what_time_is_it_now();
-      if (viewImage_)
-      {
-        displayInThread(0);
-      }
-      publishInThread();
-    }
-    else
-    {
-      char name[256];
-      sprintf(name, "%s_%08d", demoPrefix_, count);
-      save_image(buff_[(buffIndex_ + 1) % 3], name);
-    }
     fetch_thread.join();
     detect_thread.join();
+    float time_diff = (headerBuff_[buffIndex_].stamp - pre_header_.stamp).toSec() * 1000;
+    if (time_diff > 50)
+    {
+      if (!demoPrefix_)
+      {
+        fps_ = 1. / (what_time_is_it_now() - demoTime_);
+        demoTime_ = what_time_is_it_now();
+        if (viewImage_)
+        {
+          displayInThread(0);
+        }
+        publishInThread();
+      }
+      else
+      {
+        char name[256];
+        sprintf(name, "%s_%08d", demoPrefix_, count);
+        save_image(buff_[(buffIndex_ + 1) % 3], name);
+      }
+    }
+    pre_header_ = headerBuff_[buffIndex_];
     ++count;
     if (!isNodeRunning())
     {
@@ -665,9 +670,9 @@ void* YoloObjectDetector::publishInThread()
       }
     }
     // boundingBoxesResults_.header.stamp = ros::Time::now();
-    boundingBoxesResults_.header.stamp = headerBuff_[(buffIndex_ + 1) % 3].stamp;
+    boundingBoxesResults_.header.stamp = headerBuff_[buffIndex_].stamp;
     boundingBoxesResults_.header.frame_id = "detection";
-    boundingBoxesResults_.image_header = headerBuff_[(buffIndex_ + 1) % 3];
+    boundingBoxesResults_.image_header = headerBuff_[buffIndex_];
     boundingBoxesPublisher_.publish(boundingBoxesResults_);
   }
   else
