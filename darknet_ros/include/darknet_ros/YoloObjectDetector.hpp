@@ -129,7 +129,7 @@ private:
    */
   bool publishDetectionImage(const cv::Mat& detectionImage);
 
-  //! Typedefs.
+  // actionlib 服务器端
   typedef actionlib::SimpleActionServer<darknet_ros_msgs::CheckForObjectsAction> CheckForObjectsActionServer;
   typedef std::shared_ptr<CheckForObjectsActionServer> CheckForObjectsActionServerPtr;
 
@@ -202,8 +202,11 @@ private:
   int fullScreen_;
   char* demoPrefix_;
 
+  // new add
   std_msgs::Header imageHeader_;
   std_msgs::Header pre_header_;
+  int frame_num_;
+  std::string file_path_;
 
   cv::Mat camImageCopy_;
   boost::shared_mutex mutexImageCallback_;
@@ -248,6 +251,9 @@ private:
   bool isNodeRunning(void);
 
   void* publishInThread();
+
+  void saveResult(const darknet_ros_msgs::BoundingBoxes& image_boxes, const int frame_num,
+                  const std::string& file_path);
 };
 
 } /* namespace darknet_ros*/

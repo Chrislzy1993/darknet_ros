@@ -12,6 +12,10 @@
 // Check for xServer
 #include <X11/Xlib.h>
 
+#include <iostream>
+#include <fstream>
+#include <sstream>
+
 #ifdef DARKNET_FILE_PATH
 std::string darknetFilePath_ = DARKNET_FILE_PATH;
 #else
@@ -29,13 +33,13 @@ YoloObjectDetector::YoloObjectDetector(ros::NodeHandle nh)
   : nodeHandle_(nh), imageTransport_(nodeHandle_), numClasses_(0), classLabels_(0), rosBoxes_(0), rosBoxCounter_(0)
 {
   ROS_INFO("[YoloObjectDetector] Node started.");
-
+  frame_num_ = 0;
+  file_path_ = "/media/liuzhiyang/data/xili_yiqi/map_route1";
   // Read parameters from config file.
   if (!readParameters())
   {
     ros::requestShutdown();
   }
-
   init();
 }
 
@@ -119,7 +123,7 @@ void YoloObjectDetector::init()
     strcpy(detectionNames[i], classLabels_[i].c_str());
   }
 
-  // Load network.
+  // 加载网络参数, 进入yolo
   setupNetwork(cfg, weights, data, thresh, detectionNames, numClasses_, 0, 0, 1, 0.5, 0, 0, 0, 0);
   yoloThread_ = std::thread(&YoloObjectDetector::yolo, this);
 
@@ -148,6 +152,7 @@ void YoloObjectDetector::init()
   nodeHandle_.param("publishers/detection_image/queue_size", detectionImageQueueSize, 1);
   nodeHandle_.param("publishers/detection_image/latch", detectionImageLatch, true);
 
+  // 订阅image topic
   imageSubscriber_ =
       imageTransport_.subscribe(cameraTopicName, cameraQueueSize, &YoloObjectDetector::cameraCallback, this);
   objectPublisher_ =
@@ -157,7 +162,7 @@ void YoloObjectDetector::init()
   detectionImagePublisher_ =
       nodeHandle_.advertise<sensor_msgs::Image>(detectionImageTopicName, detectionImageQueueSize, detectionImageLatch);
 
-  // Action servers.
+  // 注册服务器, 并且启动服务器
   std::string checkForObjectsActionName;
   nodeHandle_.param("actions/camera_reading/topic", checkForObjectsActionName, std::string("check_for_objects"));
   checkForObjectsActionServer_.reset(new CheckForObjectsActionServer(nodeHandle_, checkForObjectsActionName, false));
@@ -170,6 +175,7 @@ void YoloObjectDetector::init()
 
 void YoloObjectDetector::cameraCallback(const sensor_msgs::ImageConstPtr& msg)
 {
+  // 读取图片
   ROS_DEBUG("[YoloObjectDetector] USB image received.");
 
   cv_bridge::CvImagePtr cam_image;
@@ -206,7 +212,7 @@ void YoloObjectDetector::checkForObjectsActionGoalCB()
   ROS_DEBUG("[YoloObjectDetector] Start check for objects action.");
 
   boost::shared_ptr<const darknet_ros_msgs::CheckForObjectsGoal> imageActionPtr =
-      checkForObjectsActionServer_->acceptNewGoal();
+      checkForObjectsActionServer_->acceptNewGoal();  // 执行
   sensor_msgs::Image imageAction = imageActionPtr->image;
 
   cv_bridge::CvImagePtr cam_image;
@@ -244,7 +250,7 @@ void YoloObjectDetector::checkForObjectsActionGoalCB()
 void YoloObjectDetector::checkForObjectsActionPreemptCB()
 {
   ROS_DEBUG("[YoloObjectDetector] Preempt check for objects action.");
-  checkForObjectsActionServer_->setPreempted();
+  checkForObjectsActionServer_->setPreempted();  // 强制中断
 }
 
 bool YoloObjectDetector::isCheckingForObjects() const
@@ -500,8 +506,10 @@ void YoloObjectDetector::setupNetwork(char* cfgfile, char* weightfile, char* dat
   set_batch_network(net_, 1);
 }
 
+// yolo检测
 void YoloObjectDetector::yolo()
 {
+  // 读取图片
   const auto wait_duration = std::chrono::milliseconds(2000);
   while (!getImageStatus())
   {
@@ -617,6 +625,7 @@ bool YoloObjectDetector::isNodeRunning(void)
   return isNodeRunning_;
 }
 
+// 发布目标检测后的照片和结果
 void* YoloObjectDetector::publishInThread()
 {
   // Publish image.
@@ -628,7 +637,8 @@ void* YoloObjectDetector::publishInThread()
 
   // Publish bounding boxes and detection result.
   int num = roiBoxes_[0].num;
-  if (num > 0 && num <= 100)
+  // if (num > 0 && num <= 100)
+  if (1)
   {
     for (int i = 0; i < num; i++)
     {
@@ -669,6 +679,9 @@ void* YoloObjectDetector::publishInThread()
         }
       }
     }
+    std::cout << "the current frame is: " << frame_num_ << std::endl;
+    // saveResult(boundingBoxesResults_, frame_num_, file_path_);
+    ++frame_num_;
     // boundingBoxesResults_.header.stamp = ros::Time::now();
     boundingBoxesResults_.header.stamp = headerBuff_[buffIndex_].stamp;
     boundingBoxesResults_.header.frame_id = "detection";
@@ -697,6 +710,42 @@ void* YoloObjectDetector::publishInThread()
   }
 
   return 0;
+}
+
+void YoloObjectDetector::saveResult(const darknet_ros_msgs::BoundingBoxes& image_boxes, const int frame_num,
+                                    const std::string& file_path)
+{
+  std::string file_name = file_path + "/darknet_ros_result/darknet_ros_result_" + std::to_string(frame_num) + ".txt";
+  std::ofstream file_writer(file_name, std::ios_base::out | std::ios_base::trunc);
+  if (!file_writer.is_open())
+  {
+    std::cout << "Fail to write file!" << std::endl;
+    return;
+  }
+  int box_num = image_boxes.bounding_boxes.size();
+  int tracker_id = -1;
+  for (int i = 0; i < box_num; ++i)
+  {
+    darknet_ros_msgs::BoundingBox box = image_boxes.bounding_boxes[i];
+    // 如果有空格这消除空格
+    std::string box_class = box.Class;
+    int pos = box_class.find_last_of(' ');
+    std::string final_class;
+    if (pos < 0)
+    {
+      final_class = box_class;
+    }
+    else
+    {
+      final_class = box_class.substr(0, pos) + box_class.substr(pos + 1);
+    }
+
+    file_writer << final_class << " ";
+    file_writer << box.xmin << " " << box.ymin << " " << box.xmax << " " << box.ymax << " ";
+    file_writer << box.probability;
+    file_writer << std::endl;
+  }
+  file_writer.close();
 }
 
 } /* namespace darknet_ros*/
