@@ -34,7 +34,6 @@ YoloObjectDetector::YoloObjectDetector(ros::NodeHandle nh)
 {
   ROS_INFO("[YoloObjectDetector] Node started.");
   frame_num_ = 0;
-  file_path_ = "/media/liuzhiyang/data/xili_yiqi/map_route1";
   // Read parameters from config file.
   if (!readParameters())
   {
@@ -58,6 +57,12 @@ bool YoloObjectDetector::readParameters()
   nodeHandle_.param("image_view/enable_opencv", viewImage_, true);
   nodeHandle_.param("image_view/wait_key_delay", waitKeyDelay_, 3);
   nodeHandle_.param("image_view/enable_console_output", enableConsoleOutput_, false);
+
+  // detect result
+  nodeHandle_.param("detect_result/save_to_file", save_to_file_, false);
+  nodeHandle_.param("detect_result/file_path", file_path_, std::string(" "));
+  std::cout << "save to file: " << save_to_file_ << std::endl;
+  std::cout << "file_path: " << file_path_ << file_path_ << std::endl;
 
   // Check if Xserver is running on Linux.
   if (XOpenDisplay(NULL))
@@ -680,7 +685,10 @@ void* YoloObjectDetector::publishInThread()
       }
     }
     std::cout << "the current frame is: " << frame_num_ << std::endl;
-    // saveResult(boundingBoxesResults_, frame_num_, file_path_);
+    if (save_to_file_)
+    {
+      saveResult(boundingBoxesResults_, frame_num_, file_path_);
+    }
     ++frame_num_;
     // boundingBoxesResults_.header.stamp = ros::Time::now();
     boundingBoxesResults_.header.stamp = headerBuff_[buffIndex_].stamp;
@@ -715,7 +723,7 @@ void* YoloObjectDetector::publishInThread()
 void YoloObjectDetector::saveResult(const darknet_ros_msgs::BoundingBoxes& image_boxes, const int frame_num,
                                     const std::string& file_path)
 {
-  std::string file_name = file_path + "/darknet_ros_result/darknet_ros_result_" + std::to_string(frame_num) + ".txt";
+  std::string file_name = file_path + "/darknet_ros_result_" + std::to_string(frame_num) + ".txt";
   std::ofstream file_writer(file_name, std::ios_base::out | std::ios_base::trunc);
   if (!file_writer.is_open())
   {

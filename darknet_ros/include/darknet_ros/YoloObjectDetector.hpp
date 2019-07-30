@@ -206,6 +206,7 @@ private:
   std_msgs::Header imageHeader_;
   std_msgs::Header pre_header_;
   int frame_num_;
+  bool save_to_file_;
   std::string file_path_;
 
   cv::Mat camImageCopy_;
